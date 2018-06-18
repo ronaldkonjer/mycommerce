@@ -12,7 +12,7 @@ buildscript {
 
 repositories {
      maven {
-         url project.findProperty("nexusUrl") ?: "http://nexus.jx.35.234.79.233.nip.io/repository/maven-releases"
+         url project.findProperty("nexusUrl") ?: "http://nexus.jx.35.234.113.221.nip.io/repository/maven-releases"
      }
     //for DB drivers
     jcenter()
@@ -24,7 +24,7 @@ apply plugin: 'com.hybris.yps.build'
 version = "0.0.1-SNAPSHOT"
 
 hybris {
-    version = "6.7.0.1"
+    version = "6.7.0.2"
 }
 
 dependencies {
