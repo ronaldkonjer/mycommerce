@@ -3,7 +3,7 @@ kind: Config
 build:
   tagPolicy:
     envTemplate:
-      template: "{{.JENKINS_X_DOCKER_REGISTRY_SERVICE_HOST}}:{{.JENKINS_X_DOCKER_REGISTRY_SERVICE_PORT}}/hybris-jenkins-x-demo/{{.IMAGE_NAME}}:{{.VERSION}}"
+      template: "{{.JENKINS_X_DOCKER_REGISTRY_SERVICE_HOST}}:{{.JENKINS_X_DOCKER_REGISTRY_SERVICE_PORT}}/{{.ORG}}/{{.IMAGE_NAME}}:{{.VERSION}}"
   artifacts:
   - imageName: mycommerce
     workspace: ./docker/hybris
