@@ -1,0 +1,200 @@
+apiVersion: apps/v1beta2
+kind: StatefulSet
+metadata:
+  name: {{ template "ycommerce.fullname" . }}
+  labels:
+    app: {{ template "ycommerce.name" . }}
+    chart: {{ template "ycommerce.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  replicas: {{add .Values.backend.replicaCount .Values.frontend.replicaCount }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0    
+  selector:
+    matchLabels:
+      app: {{ template "ycommerce.name" . }}
+      release: {{ .Release.Name }}
+      tier: application
+  template:
+    metadata:
+      labels:
+        app: {{ template "ycommerce.name" . }}
+        release: {{ .Release.Name }}
+        tier: application
+    spec:
+      terminationGracePeriodSeconds: 180
+      initContainers:
+        - name: label-group
+          image: lachlanevenson/k8s-kubectl:v1.10.3
+          env:
+          - name: MAX_BACKEND
+            value: {{ .Values.backend.replicaCount | quote }}
+          command:
+          - sh
+          - "-c"
+          - |-
+            set -ex
+            HOSTNAME=$(hostname)
+            ORDINAL=${HOSTNAME##*-}
+            GROUP=""
+            if [[ $ORDINAL -lt $MAX_BACKEND ]]; then
+              GROUP=backend
+            else
+              GROUP=frontend
+            fi
+            echo "adding label group=$GROUP"
+            kubectl label pod --overwrite $HOSTNAME group=$GROUP
+        - name: wait-initialized
+          image: busybox:1.28.4
+          command:
+          - sh
+          - "-c"
+          - |-
+            set -ex
+            initialized=/opt/hybris/data/media/.initialized
+            while [[ ! -f $initialized ]]; do
+              echo "File $initialized does not (yet) exist."
+              echo "Waiting for initialization to finish"
+              sleep 30
+            done
+          volumeMounts:
+          - name: media
+            mountPath: /opt/hybris/data/media
+        - name: setup-config
+          image: busybox:1.28.4
+          env:
+          - name: MAX_BACKEND
+            value: {{ .Values.backend.replicaCount | quote }}
+          command:
+          - sh
+          - "-c"
+          - |
+            set -ex
+            HOSTNAME=$(hostname)
+            ORDINAL=${HOSTNAME##*-}
+            CONFIG_FILE=""
+            if [[ $ORDINAL -lt $MAX_BACKEND ]]; then
+              CONFIG_FILE=/mnt/config-map/backend.properties
+            else
+              CONFIG_FILE=/mnt/config-map/frontend.properties
+            fi
+            echo "#used config: $CONFIG_FILE" > /mnt/opt-config/10-local.properties
+            cat $CONFIG_FILE >> /mnt/opt-config/10-local.properties
+
+            TSFILE=/opt/hybris/data/media/.currentTypesystem
+            TYPESYSTEM="DEFAULT"
+            if [[ -f $TSFILE ]]; then
+              TYPESYSTEM=$(cat $TSFILE)
+            fi
+            echo "db.type.system.name=$TYPESYSTEM" > /mnt/opt-config/99-local.properties
+
+          volumeMounts:
+          - name: config-map
+            mountPath: /mnt/config-map
+            readonly: true
+          - name: opt-config
+            mountPath: /mnt/opt-config
+            readonly: false
+          - name: media
+            mountPath: /opt/hybris/data/media
+            readonly: true
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ include "skaffold.or.default" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          lifecycle:
+            preStop:
+              exec:
+                {{/*
+                TODO: use a secret + env vars to inject the user credentials for shutdown
+                */}}
+                command:
+                - "/bin/bash"
+                - "-c"
+                - |-
+                  curl \
+                  --user admin:nimda \
+                  --header "Accept: application/json" \
+                  --header "Content-Type: application/json" \
+                  -H 'x-forwarded-proto: https' \
+                  http://localhost:8080/hac/monitoring/suspendresume/suspendtoken > suspend.json
+                  
+                  sed -i -e 's/"forShutdown":false/"forShutdown":true/' suspend.json
+                  curl \
+                  --user admin:nimda \
+                  --header "Accept: application/json" \
+                  --header "Content-Type: application/json" \
+                  -H 'x-forwarded-proto: https' \
+                  -X POST \
+                  -d @suspend.json \
+                  http://localhost:8080/hac/monitoring/suspendresume/suspend
+
+                  while curl --fail --silent -k \
+                        --user admin:nimda -H 'x-forwarded-proto: https' \
+                        http://localhost:8080/hac/monitoring/suspendresume/status > /dev/null
+                  do
+                    echo "waiting for termination"
+                    sleep 10
+                  done
+          env:
+{{ ( include "commerce.env" . ) | indent 10 }}
+          - name: y_spring_session_enabled
+            value: "true"
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - name: media
+              mountPath: /opt/hybris/data/media
+            - name: opt-config
+              mountPath: /opt/hybris/opt-config-dir
+            - name: service-account-credentials-volume
+              mountPath: /secrets/cloudsql
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /cloudtools/healthz
+              port: http
+            initialDelaySeconds: 240
+            periodSeconds: 10
+          # readinessProbe:
+          #   httpGet:
+          #     path: /
+          #     port: http
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+    {{- with .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+      volumes:
+      - name: service-account-credentials-volume
+        secret:
+          secretName: cloudsql-instance-credentials
+          items:
+            - key: credentials.json
+              path: mysql-sa.json
+      - name: media
+      {{- if .Values.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ .Values.persistence.existingClaim | default (include "ycommerce.fullname" .) }}
+      {{- else }}
+        emptyDir: {}
+      {{- end }}
+      - name: config-map
+        configMap:
+          name: {{ include "ycommerce.fullname" . }}
+      - name: opt-config
+        emptyDir: {}

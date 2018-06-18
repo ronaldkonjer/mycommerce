@@ -1,0 +1,19 @@
+{{- /*
+fi update.json present in image (where?)
+nneues typesystem
+
+cofig update -> new type system
+wie kriag i die aktuelle type system version in die rutime config der pods? media folder -> localDir kopieren, falls es existiert?
+
+ant tasks + update + check für upgrade file?
+check if update performed/necessary (hashvalue of update file? hashvalue+filename if exists->already done)
+
+prestop: suspend?
+
+update/initialize.json -> filteredPatches: false!!
+sosntn werden keine patches auto-imported...
+
+wie cronjobs für neue typesystems auf neue nodes restricten? eigenltihc geht das nur mit job groups...
+
+*/ -}}
+

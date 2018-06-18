@@ -1,0 +1,82 @@
+{{- if not .Values.skipInitialize -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ template "ycommerce.fullname" . }}-init
+  labels:
+    app: {{ template "ycommerce.name" . }}
+    chart: {{ template "ycommerce.chart" . }}
+    tier: init-update
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+  annotations:
+    "helm.sh/hook": post-install
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: "Never"
+      containers:
+      - name: {{ .Chart.Name }}-init
+        image: "{{ include "skaffold.or.default" . }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        env:
+{{ ( include "commerce.env" . ) | indent 8 }}
+        - name: y_clustermode
+          value: "false"
+        - name: SKIP_INIT
+          value: {{ .Values.skipInitialize | quote }}
+        command:
+          - sh
+          - -c 
+          - |-
+            set -ex
+
+            echo "DEFAULT" > /opt/hybris/data/media/.currentTypesystem
+
+            initialized=/opt/hybris/data/media/.initialized
+            if [[ "$SKIP_INIT" == "true" ]]; then
+              echo "will NOT run ant initialize"
+              touch $initialized
+              exit 0
+            fi
+            if [[ -f $initialized ]]; then
+              echo "system already initalized, nothing to do"
+            else
+              echo "initializing system..."
+              rm -rf /opt/hybris/bin/platform/tomcat
+              ln -sf $CATALINA_HOME /opt/hybris/bin/platform/tomcat
+
+              cd /opt/hybris/bin/platform
+              source ./setantenv.sh
+              ant initialize \
+                -Dbundled.tomcat.home=$CATALINA_HOME \
+                -Dde.hybris.platform.ant.production.skip.build=true \
+                -Dtask.engine.loadonstartup=false
+              date -u +"%Y-%m-%dT%H:%M:%SZ" > $initialized
+            fi
+        volumeMounts:
+          - name: media
+            mountPath: /opt/hybris/data/media
+          - name: service-account-credentials-volume
+            mountPath: /secrets/cloudsql
+            readOnly: true
+        resources:
+{{ toYaml .Values.resources | indent 10 }}
+      volumes:
+      - name: service-account-credentials-volume
+        secret:
+          secretName: cloudsql-instance-credentials
+          items:
+            - key: credentials.json
+              path: mysql-sa.json
+      - name: media
+      {{- if .Values.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ .Values.persistence.existingClaim | default (include "ycommerce.fullname" .) }}
+      {{- else }}
+        emptyDir: {}
+      {{- end -}}
+{{- end -}}

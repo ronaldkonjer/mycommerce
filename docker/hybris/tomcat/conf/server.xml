@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+ [y] hybris Platform
+
+ Copyright (c) 2018 SAP SE or an SAP affiliate company.  All rights reserved.
+
+ This software is the confidential and proprietary information of SAP
+ ("Confidential Information"). You shall not disclose such Confidential
+ Information and shall use it only in accordance with the terms of the
+ license agreement you entered into with SAP.
+-->
+<!-- Note:  A "Server" is not itself a "Container", so you may not
+     define subcomponents such as "Valves" at this level.
+     Documentation at /docs/config/server.html
+-->
+<Server port="8005" shutdown="SHUTDOWN">
+
+	<Listener className="org.apache.catalina.startup.VersionLoggerListener" />
+
+	<Service name="Catalina">
+
+		<Executor name="hybrisExecutor"
+			namePrefix="hybrisHTTP"
+			maxThreads="200"
+			minSpareThreads="40"
+			maxIdleTime="10000" />
+
+		<!-- <Connector
+			port="${ENV::HTTPS_PORT}"
+			maxHttpHeaderSize="8192"
+			maxThreads="150"
+			protocol="HTTP/1.1"
+			executor="hybrisExecutor"
+			enableLookups="false"
+			acceptCount="100"
+			connectionTimeout="20000"
+			disableUploadTimeout="true"
+			URIEncoding="UTF-8"
+			SSLEnabled="true"
+			scheme="https"
+			secure="true"
+			clientAuth="false"
+			keyAlias="${ENV::KEYSTORE_ALIAS}"
+			keystoreFile="${ENV::KEYSTORE_LOCATION}"
+			keystorePass="${ENV::KEYSTORE_PASSWORD}" /> -->
+
+		<!-- <Connector
+			port="${ENV::HTTP_PORT}"
+			maxHttpHeaderSize="8192"
+			maxThreads="200"
+			protocol="HTTP/1.1"
+			executor="hybrisExecutor"
+			enableLookups="false"
+			acceptCount="100"
+			connectionTimeout="20000"
+			URIEncoding="UTF-8"
+			disableUploadTimeout="true"
+			redirectPort="${ENV::HTTPS_PORT}" /> -->
+
+		<Connector
+			port="${ENV::HTTP_PORT}"
+			maxHttpHeaderSize="8192"
+			maxThreads="200"
+			protocol="HTTP/1.1"
+			executor="hybrisExecutor"
+			enableLookups="false"
+			acceptCount="100"
+			connectionTimeout="20000"
+			URIEncoding="UTF-8"
+			secure="false"
+			disableUploadTimeout="true" />
+
+		<!-- <Connector
+			port="${ENV::AJP_PORT}"
+			protocol="AJP/1.3"
+			executor="hybrisExecutor" /> -->
+
+		<Engine
+			name="Catalina"
+			defaultHost="localhost" >
+			<Host
+				name="localhost"
+				unpackWARs="true"
+				autoDeploy="true">
+				<!-- <Valve
+					className="org.apache.catalina.valves.ErrorReportValve"
+					showReport="${ENV::ERROR_SHOW_REPORT}"
+					showServerInfo="${ENV::ERROR_SHOW_SERVER_INFO}" /> -->
+				<Valve
+					className="de.hybris.tomcat.StoreJvmRouteAsContextParameterValve" />
+					
+				<Valve className="org.apache.catalina.valves.AccessLogValve" directory="logs"
+					prefix="localhost_access_log" suffix=".txt"
+					pattern="%h %l %u %t &quot;%r&quot; %s %b" />
+
+				<Valve className="org.apache.catalina.valves.RemoteIpValve"
+                        remoteIpHeader="x-forwarded-for" 
+                        proxiesHeader="x-forwarded-by" 
+                        protocolHeader="x-forwarded-proto" />
+
+			</Host>
+		</Engine>
+	</Service>
+</Server>

@@ -1,0 +1,109 @@
+{{- if not .Values.skipUpdate -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ template "ycommerce.fullname" . }}-update
+  labels:
+    app: {{ template "ycommerce.name" . }}
+    chart: {{ template "ycommerce.chart" . }}
+    tier: init-update
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: "Never"
+      containers:
+      - name: {{ .Chart.Name }}-update
+        image: "{{ include "skaffold.or.default" . }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        env:
+{{ ( include "commerce.env" . ) | indent 8 }}
+        - name: y_clustermode
+          value: "false"
+        command:
+          - sh
+          - -c 
+          - |-
+            set -x
+
+            UPDATE_CONFIG=/opt/hybris/config/update.json
+            OLD_TS_FILE=/opt/hybris/data/media/.oldTypesystem
+            CURRENT_TS_FILE=/opt/hybris/data/media/.currentTypesystem
+            UPDATE_TRACKING=/opt/hybris/data/media/.updates
+
+            unset HYBRIS_OPT_CONFIG_DIR
+
+            if [ ! -s "$UPDATE_CONFIG" ]; then
+              echo "Update config file $UPDATE_CONFIG not available or is empty. Nothing to do"
+              exit 0
+            fi
+
+            cd /opt/hybris/bin/platform
+            source ./setantenv.sh
+
+            OLD_TS=$(cat "$OLD_TS_FILE") || true
+            # don't touch "DEFAULT" (first) typesystem https://jira.hybris.com/browse/ECP-2950
+            if [ -n "$OLD_TS" -a \( ! "$OLD_TS" == "DEFAULT" \) ]; then
+              echo "trying to drop old typesystem $OLD_TS"
+              ant droptypesystem \
+                -DtypeSystemName=$OLD_TS \
+                -Dbundled.tomcat.home=$CATALINA_HOME \
+                -Dde.hybris.platform.ant.production.skip.build=true \
+                -Dtask.engine.loadonstartup=false || true
+            fi
+
+            CURRENT_TS=$(cat "$CURRENT_TS_FILE")
+            echo "Current typesystem: $CURRENT_TS"
+            NEW_TS=GREEN
+            if [ "$CURRENT_TS" == "GREEN" ]; then 
+              NEW_TS="BLUE"
+            fi
+            echo "create new typesystem $NEW_TS from $CURRENT_TS"
+            export y_db_type_system_name=$CURRENT_TS
+            ant createtypesystem \
+              -DtypeSystemName=$NEW_TS \
+              -Ddb.type.system.name=$CURRENT_TS \
+              -Dbundled.tomcat.home=$CATALINA_HOME \
+              -Dde.hybris.platform.ant.production.skip.build=true \
+              -Dtask.engine.loadonstartup=false
+
+            echo "running updatesystem on new typesystem $NEW_TS"
+            # to be sure...
+            export y_db_type_system_name=$NEW_TS
+            ant updatesystem \
+              -Ddb.type.system.name=$NEW_TS \
+              -DconfigFile=$UPDATE_CONFIG \
+              -Dbundled.tomcat.home=$CATALINA_HOME \
+              -Dde.hybris.platform.ant.production.skip.build=true \
+              -Dtask.engine.loadonstartup=false
+            
+            mv "$CURRENT_TS_FILE" "$OLD_TS_FILE"
+            echo $NEW_TS > "$CURRENT_TS_FILE"
+
+        volumeMounts:
+          - name: media
+            mountPath: /opt/hybris/data/media
+          - name: service-account-credentials-volume
+            mountPath: /secrets/cloudsql
+            readOnly: true
+      volumes:
+      - name: service-account-credentials-volume
+        secret:
+          secretName: cloudsql-instance-credentials
+          items:
+            - key: credentials.json
+              path: mysql-sa.json
+      - name: media
+      {{- if .Values.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ .Values.persistence.existingClaim | default (include "ycommerce.fullname" .) }}
+      {{- else }}
+        emptyDir: {}
+      {{- end -}}
+{{- end -}}

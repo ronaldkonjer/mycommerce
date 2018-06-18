@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "ycommerce.fullname" . }}
+  labels:
+    app: {{ template "ycommerce.name" . }}
+    chart: {{ template "ycommerce.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+data:
+  backend.properties: |
+{{ .Values.backend.extraProperties | indent  4 }}
+  frontend.properties: |
+{{ .Values.frontend.extraProperties | indent  4 }}

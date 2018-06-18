@@ -1,0 +1,21 @@
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "ysolr.fullname" . }}
+  labels:
+    app: {{ template "ysolr.name" . }}
+    chart: {{ template "ysolr.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ template "ysolr.name" . }}
+    release: {{ .Release.Name }}
+{{- end }}

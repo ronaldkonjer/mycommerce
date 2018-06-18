@@ -1,0 +1,121 @@
+//since the plugin isn't available in any maven repo, it is provided as file
+buildscript {
+    repositories {
+        flatDir {
+            dirs 'buildLibs'
+        }
+    }
+    dependencies {
+        classpath 'com.hybris:hybris-gradle-plugin:1.0-SNAPSHOT'
+    }
+}
+
+repositories {
+     maven {
+         url project.findProperty("nexusUrl") ?: "http://nexus.jx.35.234.79.233.nip.io/repository/maven-releases"
+     }
+    //for DB drivers
+    jcenter()
+}
+
+apply plugin: 'com.hybris.yps.build'
+
+
+version = "0.0.1-SNAPSHOT"
+
+hybris {
+    version = "6.7.0.1"
+}
+
+dependencies {
+    //db drivers defined here are automatically downloaded and configured during bootstrapPlatform
+    dbDriver "mysql:mysql-connector-java:5.1.45"
+    dbDriver 'com.google.cloud.sql:mysql-socket-factory:1.0.8'
+}
+
+task unittests(type: com.hybris.yps.build.tasks.HybrisAntTask) {
+    mustRunAfter "yall", "ybuild"
+
+    args("unittests")
+    systemProperty("testclasses.extensions", "myacceleratorcore")
+    systemProperty("testclasses.suppress.junit.tenant", "true")
+
+    // reports to hybris/log/junit
+}
+
+task sonar(type: com.hybris.yps.build.tasks.HybrisAntTask) {
+    mustRunAfter "unittests"
+    args("sonarcheck")
+
+    systemProperty("sonar.extensions", "myacceleratorcore,myacceleratorfacades,myacceleratorfulfilmentprocess,myacceleratorstorefront")
+    systemProperty("sonar.projectName", "My B2C Accelerator")
+    systemProperty("sonar.projectKey", "mycommerce")
+    systemProperty("sonar.host.url", project.findProperty("sonarURL") ?: "http://localhost:9000")
+}
+
+task deleteOldJgroups(type: Delete) {
+    delete fileTree('hybris/bin/platform/ext/core/lib') {
+        include 'jgroups*.jar'
+    }
+}
+task updateJgroups(type: Copy) {
+    dependsOn "deleteOldJgroups"
+    from 'hybris/bin/custom/cloudtools'
+    into 'hybris/bin/platform/ext/core/lib'
+    include "jgroups*.jar"
+}
+
+def productionOutput = "docker/hybris/buildout"
+
+task cleanBuildout(type: Delete) {
+    delete productionOutput
+}
+
+task dockerProduction(type: com.hybris.yps.build.tasks.HybrisAntTask) {
+    dependsOn 'cleanBuildout', 'updateJgroups'
+    args("production")
+    args("-Dproduction.legacy.mode=false")
+    args("-Dtomcat.legacy.deployment=false")
+    args("-Dproduction.include.tomcat=false")
+    args("-Dproduction.output.path=${file(productionOutput).getAbsolutePath().toString()}")
+    args("-Dproduction.create.zip=false")
+}
+
+task copyTomcat(type: Copy) {
+    mustRunAfter "dockerProduction"
+    from file("docker/hybris/tomcat")
+    into file("$productionOutput/tomcat")
+}
+
+task copyHybrisConfig(type: Copy) {
+    mustRunAfter "dockerProduction"
+    from "docker/hybris/config"
+    into "$productionOutput/config"
+}
+
+task copyHybrisSolrDist(type: Copy) {
+    from "hybris/bin/ext-commerce/solrserver/resources/solr"
+    into "docker/solr/solr"
+}
+
+task copyHybrisDefaultInstanceConfig(type: Copy) {
+    mustRunAfter "copyHybrisSolrDist"
+    from "hybris/config/solr/instances/default"
+    into "docker/solr/solr/server/solr"
+    exclude "security.json"
+}
+
+
+task prepareSolrDocker {
+    dependsOn "copyHybrisSolrDist", "copyHybrisDefaultInstanceConfig"
+}
+
+task prepareHybrisDocker {
+    dependsOn "dockerProduction",
+    "copyTomcat",
+    "copyHybrisConfig"
+}
+
+task prepareDocker {
+    dependsOn "prepareHybrisDocker", "prepareSolrDocker"
+}

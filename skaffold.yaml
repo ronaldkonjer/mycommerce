@@ -1,0 +1,16 @@
+apiVersion: skaffold/v1alpha2
+kind: Config
+build:
+  tagPolicy:
+    envTemplate:
+      template: "{{.JENKINS_X_DOCKER_REGISTRY_SERVICE_HOST}}:{{.JENKINS_X_DOCKER_REGISTRY_SERVICE_PORT}}/hybris-jenkins-x-demo/{{.IMAGE_NAME}}:{{.VERSION}}"
+  artifacts:
+  - imageName: mycommerce
+    workspace: ./docker/hybris
+  - imageName: mycommerce-ysolr
+    workspace: ./docker/solr
+  local: {}
+deploy:
+  kubectl:
+    manifests:
+    - dummy.yaml
